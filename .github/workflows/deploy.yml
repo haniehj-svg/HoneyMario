@@ -1,0 +1,23 @@
+name: Deploy to server
+
+on:
+  push:
+    branches: [claude/serene-rubin-vcygyi]
+    paths:
+      - 'index.html'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy game to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASSWORD }}
+          source: 'index.html'
+          target: ${{ secrets.DEPLOY_PATH }}
