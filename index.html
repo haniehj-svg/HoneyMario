@@ -36,7 +36,7 @@
   }
   .hero{
     text-align:center;
-    max-width:600px;
+    max-width:620px;
     display:flex;
     flex-direction:column;
     gap:6px;
@@ -92,8 +92,14 @@
     right:12px;
     display:flex;
     justify-content:space-between;
+    align-items:flex-start;
     gap:10px;
     pointer-events:none;
+    flex-wrap:wrap;
+  }
+  .hud-right{
+    display:flex;
+    gap:8px;
   }
   .pill{
     padding:6px 14px;
@@ -116,6 +122,20 @@
     box-shadow:0 0 6px rgba(255,243,196,0.8);
     flex:none;
   }
+  .life-dot{
+    width:11px;
+    height:11px;
+    border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #FFD9E6, #FF5D8F 70%);
+    box-shadow:0 0 6px rgba(255,93,143,0.7);
+    flex:none;
+    transition:background 0.2s ease, opacity 0.2s ease;
+  }
+  .life-dot.lost{
+    background:#6b5c4d;
+    box-shadow:none;
+    opacity:0.4;
+  }
   .win-overlay{
     position:absolute;
     inset:0;
@@ -131,7 +151,7 @@
     background:var(--cream);
     border-radius:18px;
     padding:26px 30px;
-    max-width:300px;
+    max-width:320px;
     box-shadow:0 20px 40px -14px rgba(0,0,0,0.45);
   }
   .win-card h2{
@@ -249,7 +269,7 @@
   <header class="hero">
     <p class="eyebrow">A tiny built-from-scratch platformer</p>
     <h1>Blip's Bounce World</h1>
-    <p class="tagline">Run, jump, and skid to a stop across a whole scrolling world — bump blocks, hop tubes, and chase the flag.</p>
+    <p class="tagline">A longer run across a trickier world — clear the pits, dodge patrolling grumps and darting bees, and keep three lives to the flag.</p>
   </header>
 
   <div class="stage-frame">
@@ -257,11 +277,16 @@
       <canvas id="game" width="960" height="540" aria-label="Blip's Bounce World game canvas"></canvas>
       <div class="hud-row">
         <div class="pill" id="statePill">Idle</div>
-        <div class="pill"><span class="spark-dot"></span><span id="sparkCount">0</span></div>
+        <div class="hud-right">
+          <div class="pill lives-pill">
+            <span class="life-dot"></span><span class="life-dot"></span><span class="life-dot"></span>
+          </div>
+          <div class="pill"><span class="spark-dot"></span><span id="sparkCount">0</span></div>
+        </div>
       </div>
       <div class="win-overlay" id="winOverlay" hidden>
         <div class="win-card">
-          <h2>Flag reached!</h2>
+          <h2 id="endTitle">Flag reached!</h2>
           <p id="winText">Blip made it across the world.</p>
           <button id="restartBtn">Play again</button>
         </div>
@@ -283,7 +308,7 @@
       <span class="key-label">Release keys to stop</span>
     </div>
   </div>
-  <p class="note">Bump blocks from underneath, hop over tubes, scoop up sparks, and reach the flag at the far end.</p>
+  <p class="note">Hop the pits, stomp grumps and bees from above (touching them any other way costs a life), and pass checkpoints to save your spot.</p>
 
   <div class="touch-row">
     <div class="touch-btn" id="touchLeft">◀</div>
@@ -299,11 +324,13 @@
   var statePill = document.getElementById('statePill');
   var sparkCountEl = document.getElementById('sparkCount');
   var winOverlay = document.getElementById('winOverlay');
+  var endTitle = document.getElementById('endTitle');
   var winText = document.getElementById('winText');
   var restartBtn = document.getElementById('restartBtn');
+  var lifeDots = document.querySelectorAll('.life-dot');
   var W = canvas.width, H = canvas.height;
   var GROUND_Y = H - 92;
-  var WORLD_WIDTH = 3200;
+  var WORLD_WIDTH = 6400;
   var WALL_MARGIN = 24;
 
   var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -318,37 +345,77 @@
 
   // ---- level layout ----
   function buildLevel(){
+    var holes = [
+      {start:1000, end:1090},
+      {start:2350, end:2460},
+      {start:3850, end:3970},
+      {start:5200, end:5330}
+    ];
+
     var tubes = [
       {x:480, w:56, h:64},
       {x:1450, w:64, h:88},
-      {x:2450, w:56, h:64}
+      {x:2900, w:56, h:64},
+      {x:3600, w:64, h:90},
+      {x:4700, w:56, h:64},
+      {x:5900, w:64, h:88}
     ].map(function(t){ t.y = GROUND_Y - t.h; t.type='tube'; return t; });
 
     var platforms = [
       {x:600, dy:110, w:150},
       {x:1050, dy:130, w:120},
       {x:1750, dy:100, w:180},
-      {x:2200, dy:130, w:130},
-      {x:2850, dy:110, w:160}
+      {x:2300, dy:150, w:220},
+      {x:2900, dy:130, w:150},
+      {x:3400, dy:110, w:140},
+      {x:4100, dy:130, w:160},
+      {x:4600, dy:100, w:130},
+      {x:5000, dy:140, w:150},
+      {x:5700, dy:110, w:160},
+      {x:6000, dy:130, w:140}
     ].map(function(p){ p.h=22; p.y=GROUND_Y-p.dy-p.h; p.type='platform'; return p; });
 
-    var blocks = [260, 760, 800, 840, 1150, 1700, 2000, 2650, 2950].map(function(x,i){
-      return {x:x, w:40, h:36, dy: 140, y:GROUND_Y-140-36, type:'block', used:false, pop:0};
-    });
+    var blocks = [260, 760, 800, 840, 1150, 1700, 2000, 2650, 2950, 3300, 4000, 4350, 4900, 5600, 5950]
+      .map(function(x){ return {x:x, w:40, h:36, y:GROUND_Y-140-36, type:'block', used:false, pop:0}; });
 
     var sparks = [];
-    [150,210,270].forEach(function(x){ sparks.push({x:x, y:GROUND_Y-40}); });
     platforms.forEach(function(p){ sparks.push({x:p.x+p.w/2, y:p.y-34}); });
+    holes.forEach(function(h){ sparks.push({x:(h.start+h.end)/2, y:GROUND_Y-70}); });
     [1150,1200,1250].forEach(function(x){ sparks.push({x:x, y:GROUND_Y-110}); });
-    [1900,1950,2600,2700,3000,3060].forEach(function(x){ sparks.push({x:x, y:GROUND_Y-50}); });
+    for (var gx=140; gx<WORLD_WIDTH-200; gx+=300){ sparks.push({x:gx, y:GROUND_Y-40}); }
     sparks.forEach(function(s){ s.collected=false; s.bob=Math.random()*Math.PI*2; });
 
+    var grumps = [
+      {x:750, min:680, max:900},
+      {x:2050, min:1950, max:2200},
+      {x:3300, min:3200, max:3500},
+      {x:4400, min:4300, max:4550},
+      {x:5600, min:5500, max:5800}
+    ].map(function(g){ g.y=GROUND_Y; g.dir=1; g.speed=75; g.alive=true; g.deathTimer=0; g.wobble=Math.random()*Math.PI*2; return g; });
+
+    var bees = [
+      {homeX:1650, baseY:GROUND_Y-120, rangeX:70, amp:24, speed:1.0, phase:0},
+      {homeX:2400, baseY:GROUND_Y-150, rangeX:90, amp:34, speed:1.4, phase:1.0},
+      {homeX:4750, baseY:GROUND_Y-140, rangeX:100, amp:30, speed:1.2, phase:2.0},
+      {homeX:5265, baseY:GROUND_Y-150, rangeX:80, amp:38, speed:1.6, phase:0.5}
+    ].map(function(b){ b.t=0; b.wingPhase=0; b.alive=true; b.deathTimer=0; b.cx=b.homeX; b.cy=b.baseY; return b; });
+
+    var checkpoints = [
+      {x:1550, reached:false},
+      {x:3700, reached:false},
+      {x:4950, reached:false}
+    ];
+
     return {
+      holes: holes,
       tubes: tubes,
       platforms: platforms,
       blocks: blocks,
       solids: tubes.concat(platforms).concat(blocks),
       sparks: sparks,
+      grumps: grumps,
+      bees: bees,
+      checkpoints: checkpoints,
       flagX: WORLD_WIDTH - 150
     };
   }
@@ -357,37 +424,102 @@
 
   function freshBlip(){
     return {
-      x: 90,
-      y: GROUND_Y,
-      vx: 0,
-      vy: 0,
-      onGround: true,
-      facing: 1,
-      animTimer: 0,
-      blinkTimer: 2 + Math.random()*2,
-      blinking: false,
-      squash: 1
+      x: 90, y: GROUND_Y, vx: 0, vy: 0, onGround: true, facing: 1,
+      animTimer: 0, blinkTimer: 2 + Math.random()*2, blinking: false, squash: 1,
+      invuln: 0, wasOnGround: true
     };
   }
   var blip = freshBlip();
   var sparkTotal = 0;
+  var lives = 3;
   var win = false;
+  var over = false;
   var floaters = [];
   var dust = [];
   var camera = 0;
+  var respawn = { x:90, y:GROUND_Y };
+
+  function groundBlockedAt(x){
+    return level.holes.some(function(h){ return x > h.start && x < h.end; });
+  }
+  function isGroundAt(x){ return !groundBlockedAt(x); }
+  function groundSegments(){
+    var pts = level.holes.slice().sort(function(a,b){return a.start-b.start;});
+    var segs = [], cursor = 0;
+    pts.forEach(function(h){ if (h.start>cursor) segs.push({start:cursor,end:h.start}); cursor = h.end; });
+    if (cursor < WORLD_WIDTH) segs.push({start:cursor,end:WORLD_WIDTH});
+    return segs;
+  }
+
+  function updateLivesUI(){
+    lifeDots.forEach(function(d,i){ d.classList.toggle('lost', i>=lives); });
+  }
 
   function resetGame(){
     level = buildLevel();
     blip = freshBlip();
     sparkTotal = 0;
+    lives = 3;
     win = false;
+    over = false;
     floaters = [];
     dust = [];
     camera = 0;
+    respawn = { x:90, y:GROUND_Y };
     sparkCountEl.textContent = '0';
+    updateLivesUI();
     winOverlay.hidden = true;
   }
   restartBtn.addEventListener('click', resetGame);
+  updateLivesUI();
+
+  function showEnd(didWin){
+    if (didWin){ win = true; } else { over = true; }
+    endTitle.textContent = didWin ? 'Flag reached!' : 'Game over';
+    var count = sparkTotal + ' spark' + (sparkTotal===1?'':'s');
+    winText.textContent = didWin
+      ? ('Blip made it across the world with ' + count + ' collected.')
+      : ('Blip ran out of lives after collecting ' + count + '. Give it another go!');
+    winOverlay.hidden = false;
+  }
+
+  // ---- hot reload (best-effort) ----
+  try {
+    if (window.claude && window.claude.hot) {
+      window.claude.hot.snapshot(function(){
+        return {
+          x: blip.x, facing: blip.facing, sparkTotal: sparkTotal, lives: lives, win: win, over: over,
+          respawn: respawn,
+          usedBlocks: level.blocks.map(function(b){return b.used;}),
+          collectedSparks: level.sparks.map(function(s){return s.collected;}),
+          grumpsAlive: level.grumps.map(function(g){return g.alive;}),
+          beesAlive: level.bees.map(function(b){return b.alive;}),
+          checkpointsReached: level.checkpoints.map(function(c){return c.reached;})
+        };
+      });
+    }
+  } catch(e){}
+
+  function boot(saved){
+    if (saved && typeof saved.x === 'number') {
+      blip.x = saved.x;
+      blip.facing = saved.facing || 1;
+      sparkTotal = saved.sparkTotal || 0;
+      sparkCountEl.textContent = String(sparkTotal);
+      lives = typeof saved.lives === 'number' ? saved.lives : 3;
+      updateLivesUI();
+      if (saved.respawn) respawn = saved.respawn;
+      win = !!saved.win; over = !!saved.over;
+      winOverlay.hidden = !(win || over);
+      if (win || over) { endTitle.textContent = win ? 'Flag reached!' : 'Game over'; }
+      if (saved.usedBlocks) level.blocks.forEach(function(b,i){ b.used = !!saved.usedBlocks[i]; });
+      if (saved.collectedSparks) level.sparks.forEach(function(s,i){ s.collected = !!saved.collectedSparks[i]; });
+      if (saved.grumpsAlive) level.grumps.forEach(function(g,i){ g.alive = !!saved.grumpsAlive[i]; });
+      if (saved.beesAlive) level.bees.forEach(function(b,i){ b.alive = !!saved.beesAlive[i]; });
+      if (saved.checkpointsReached) level.checkpoints.forEach(function(c,i){ c.reached = !!saved.checkpointsReached[i]; });
+    }
+    requestAnimationFrame(loop);
+  }
 
   var input = { left:false, right:false, jumpQueued:false };
   function setKey(code, down){
@@ -484,18 +616,29 @@
     ctx.restore();
   }
   function drawGround(){
-    ctx.fillStyle = '#8B5A34';
-    ctx.fillRect(0, GROUND_Y+22, WORLD_WIDTH, H-GROUND_Y-22);
-    ctx.fillStyle = '#5EA65A';
-    ctx.fillRect(0, GROUND_Y, WORLD_WIDTH, 26);
-    ctx.fillStyle = '#4E9048';
-    for (var i=0;i<WORLD_WIDTH;i+=26){
-      ctx.beginPath();
-      ctx.moveTo(i, GROUND_Y+4);
-      ctx.lineTo(i+8, GROUND_Y-6);
-      ctx.lineTo(i+16, GROUND_Y+4);
-      ctx.fill();
-    }
+    level.holes.forEach(function(h){
+      var g = ctx.createLinearGradient(0,GROUND_Y,0,H);
+      g.addColorStop(0,'#2B1C12'); g.addColorStop(1,'#120B07');
+      ctx.fillStyle = g;
+      ctx.fillRect(h.start, GROUND_Y, h.end-h.start, H-GROUND_Y+40);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(h.start, GROUND_Y, 6, 16);
+      ctx.fillRect(h.end-6, GROUND_Y, 6, 16);
+    });
+    groundSegments().forEach(function(seg){
+      ctx.fillStyle = '#8B5A34';
+      ctx.fillRect(seg.start, GROUND_Y+22, seg.end-seg.start, H-GROUND_Y-22);
+      ctx.fillStyle = '#5EA65A';
+      ctx.fillRect(seg.start, GROUND_Y, seg.end-seg.start, 26);
+      ctx.fillStyle = '#4E9048';
+      for (var i=seg.start;i<seg.end;i+=26){
+        ctx.beginPath();
+        ctx.moveTo(i, GROUND_Y+4);
+        ctx.lineTo(i+8, GROUND_Y-6);
+        ctx.lineTo(i+16, GROUND_Y+4);
+        ctx.fill();
+      }
+    });
   }
   function drawTube(t){
     var g = ctx.createLinearGradient(t.x,0,t.x+t.w,0);
@@ -566,6 +709,89 @@
     ctx.beginPath(); ctx.arc(-2,-2,2.4,0,Math.PI*2); ctx.fill();
     ctx.restore();
   }
+  function drawCheckpoint(cp){
+    var top = GROUND_Y-140;
+    ctx.strokeStyle = '#D8C9AE';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(cp.x, GROUND_Y+2); ctx.lineTo(cp.x, top); ctx.stroke();
+    ctx.fillStyle = cp.reached ? '#6C4E9C' : '#B9AFC4';
+    ctx.beginPath();
+    ctx.moveTo(cp.x, top);
+    ctx.lineTo(cp.x+30, top+10);
+    ctx.lineTo(cp.x, top+20);
+    ctx.closePath();
+    ctx.fill();
+  }
+  function drawGrump(g){
+    ctx.save();
+    var scaleY = 1;
+    var alpha = 1;
+    if (!g.alive){
+      var p = 1 - Math.max(0, g.deathTimer)/0.35;
+      scaleY = 1 - p*0.8;
+      alpha = 1 - p;
+    }
+    ctx.globalAlpha = alpha;
+    var bob = g.alive ? Math.abs(Math.sin(g.wobble*6))*2 : 0;
+    ctx.translate(g.x, g.y - bob);
+    ctx.scale(g.dir<0?-1:1, scaleY);
+
+    ctx.fillStyle = 'rgba(58,46,34,0.2)';
+    ctx.beginPath(); ctx.ellipse(0, 2, 16, 5, 0, 0, Math.PI*2); ctx.fill();
+
+    var grad = ctx.createLinearGradient(0,-26,0,0);
+    grad.addColorStop(0,'#7BB05C'); grad.addColorStop(1,'#4E7A38');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.ellipse(0,-12,17,15,0,0,Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = '#3D5E2B';
+    ctx.beginPath(); ctx.ellipse(-8,-22,5,3,0.4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(8,-22,5,3,-0.4,0,Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath(); ctx.ellipse(6,-14,5,6,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-6,-14,4,5,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#2B2140';
+    ctx.beginPath(); ctx.arc(7,-13,2.2,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-6,-13,2,0,Math.PI*2); ctx.fill();
+
+    ctx.fillStyle = '#3D5E2B';
+    ctx.beginPath(); ctx.ellipse(-7,3,5,6,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(7,3,5,6,0,0,Math.PI*2); ctx.fill();
+
+    ctx.restore();
+  }
+  function drawBee(b){
+    if (!b.alive && b.deathTimer<=0) return;
+    ctx.save();
+    var alpha = 1, scaleY = 1;
+    if (!b.alive){
+      var p = 1 - Math.max(0,b.deathTimer)/0.35;
+      alpha = 1-p; scaleY = 1-p*0.7;
+    }
+    ctx.globalAlpha = alpha;
+    ctx.translate(b.cx, b.cy);
+    ctx.scale(1, scaleY);
+
+    var flap = Math.abs(Math.sin(b.wingPhase));
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.save(); ctx.translate(-6,-4); ctx.scale(1, 0.3+flap*0.7); ctx.beginPath(); ctx.ellipse(0,0,10,6,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(6,-4); ctx.scale(1, 0.3+flap*0.7); ctx.beginPath(); ctx.ellipse(0,0,10,6,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+
+    ctx.fillStyle = '#F2C230';
+    ctx.beginPath(); ctx.ellipse(0,0,13,10,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#2B2140';
+    [-7,-1,5].forEach(function(sx){
+      ctx.beginPath(); ctx.ellipse(sx,0,2.6,10,0,0,Math.PI*2); ctx.fill();
+    });
+    ctx.fillStyle = '#2B2140';
+    ctx.beginPath(); ctx.moveTo(12,0); ctx.lineTo(19,0); ctx.lineTo(12,4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.beginPath(); ctx.arc(-9,-3,2.4,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#2B2140';
+    ctx.beginPath(); ctx.arc(-8.5,-3,1.3,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
   function drawFlag(){
     var poleX = level.flagX, top = GROUND_Y-220;
     ctx.strokeStyle = '#D8C9AE';
@@ -605,8 +831,10 @@
       f.age += 0.016;
       if (f.age > f.life){ floaters.splice(i,1); continue; }
       var alpha = 1 - f.age/f.life;
-      ctx.fillStyle = 'rgba(58,46,34,' + alpha.toFixed(2) + ')';
+      ctx.fillStyle = (f.color||'rgba(58,46,34,1)');
+      ctx.globalAlpha = alpha;
       ctx.fillText(f.text, f.x, f.y - f.age*40);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -625,6 +853,7 @@
       squashY = b.squash;
       stretch = 2 - b.squash;
     }
+    if (b.invuln>0 && Math.floor(b.invuln*16)%2===0) return;
     ctx.save();
     ctx.translate(b.x, b.y - bob);
     ctx.scale(b.facing, 1);
@@ -700,6 +929,29 @@
   function overlapX(a, s){ return a.left < s.x+s.w && a.right > s.x; }
   function overlapY(a, s){ return a.top < s.y+s.h && a.bottom > s.y; }
 
+  function tryEnemyHit(e, ex, ey, ew, eh){
+    if (!e.alive) return;
+    var eTop=ey-eh/2, eBottom=ey+eh/2, eLeft=ex-ew/2, eRight=ex+ew/2;
+    var pTop=blip.y-BOX_H, pBottom=blip.y, pLeft=blip.x-BOX_W/2, pRight=blip.x+BOX_W/2;
+    if (pLeft<eRight && pRight>eLeft && pTop<eBottom && pBottom>eTop){
+      var stomping = blip.vy > 60 && pBottom - eTop < eh*0.6;
+      if (stomping){
+        e.alive = false; e.deathTimer = 0.35;
+        blip.vy = -500;
+        sparkTotal++; sparkCountEl.textContent = String(sparkTotal);
+        spawnSparkle(ex, ey, 10);
+        addFloater(ex, ey-10, '+1', 'rgba(91,63,135,1)');
+      } else if (blip.invuln<=0){
+        lives = Math.max(0, lives-1); updateLivesUI();
+        blip.invuln = 1.4;
+        blip.vx = (blip.x<ex? -1:1)*260;
+        blip.vy = -420;
+        spawnDust(blip.x, blip.y-20, 10, 20);
+        if (lives<=0) showEnd(false);
+      }
+    }
+  }
+
   var lastDustSpawn = 0;
   var lastTime = null;
 
@@ -708,7 +960,9 @@
     var dt = Math.min(0.032, (ts - lastTime) / 1000);
     lastTime = ts;
 
-    if (!win){
+    if (!win && !over){
+      blip.invuln = Math.max(0, blip.invuln - dt);
+
       var moving = false;
       if (input.left && !input.right){ blip.vx -= RUN_ACCEL*dt; blip.facing = -1; moving = true; }
       else if (input.right && !input.left){ blip.vx += RUN_ACCEL*dt; blip.facing = 1; moving = true; }
@@ -760,16 +1014,15 @@
             s.used = true; s.pop = 1;
             sparkTotal++; sparkCountEl.textContent = String(sparkTotal);
             spawnSparkle(s.x+s.w/2, s.y, 10);
-            addFloater(s.x+s.w/2, s.y-6, '+1', '#5B3F87');
+            addFloater(s.x+s.w/2, s.y-6, '+1', 'rgba(91,63,135,1)');
           }
         }
         vb = boxOf(blip.x, newY);
       });
-      if (!blip.onGround && newY >= GROUND_Y){
+
+      var grounded = isGroundAt(blip.x);
+      if (!blip.onGround && grounded && newY >= GROUND_Y){
         newY = GROUND_Y; blip.vy = 0; blip.onGround = true;
-      }
-      if (!blip.onGround && blip.vy>0 && prevY < GROUND_Y && newY >= GROUND_Y){
-        blip.onGround = true;
       }
       if (blip.onGround && !blip.wasOnGround && blip.vy===0 && prevY < newY - 4){
         spawnDust(blip.x, GROUND_Y+6, 8, 20);
@@ -777,6 +1030,17 @@
       }
       blip.wasOnGround = blip.onGround;
       blip.y = newY;
+
+      // fell into a pit
+      if (blip.y > H + 60){
+        lives = Math.max(0, lives-1); updateLivesUI();
+        if (lives<=0){ showEnd(false); }
+        else {
+          blip.x = respawn.x; blip.y = respawn.y; blip.vx=0; blip.vy=0;
+          blip.onGround = true; blip.invuln = 1.4;
+          spawnDust(blip.x, GROUND_Y+10, 14, 26);
+        }
+      }
 
       if (blip.onGround){ blip.squash += (1 - blip.squash) * Math.min(1, dt*10); }
 
@@ -791,6 +1055,26 @@
         lastDustSpawn = ts;
       }
 
+      // enemies
+      level.grumps.forEach(function(g){
+        if (g.alive){
+          g.x += g.dir*g.speed*dt;
+          if (g.x < g.min){ g.x = g.min; g.dir = 1; }
+          if (g.x > g.max){ g.x = g.max; g.dir = -1; }
+          g.wobble += dt;
+        } else if (g.deathTimer>0){ g.deathTimer -= dt; }
+      });
+      level.bees.forEach(function(b){
+        if (b.alive){
+          b.t += dt;
+          b.cx = b.homeX + Math.sin(b.t*b.speed + b.phase)*b.rangeX;
+          b.cy = b.baseY + Math.sin(b.t*b.speed*1.6 + b.phase)*b.amp;
+          b.wingPhase += dt*20;
+        } else if (b.deathTimer>0){ b.deathTimer -= dt; }
+      });
+      level.grumps.forEach(function(g){ tryEnemyHit(g, g.x, g.y-15, 32, 28); });
+      level.bees.forEach(function(b){ tryEnemyHit(b, b.cx, b.cy, 28, 20); });
+
       // spark pickups
       level.sparks.forEach(function(s){
         if (s.collected) return;
@@ -802,10 +1086,17 @@
         }
       });
 
+      // checkpoints
+      level.checkpoints.forEach(function(cp){
+        if (!cp.reached && blip.onGround && Math.abs(blip.x-cp.x) < 26){
+          cp.reached = true;
+          respawn = { x: cp.x, y: GROUND_Y };
+          addFloater(cp.x, GROUND_Y-40, 'Checkpoint!', 'rgba(47,143,122,1)');
+        }
+      });
+
       if (blip.x >= level.flagX - 14){
-        win = true;
-        winText.textContent = 'Blip made it across the world with ' + sparkTotal + ' spark' + (sparkTotal===1?'':'s') + ' collected.';
-        winOverlay.hidden = false;
+        showEnd(true);
       }
     }
 
@@ -824,9 +1115,12 @@
     ctx.save();
     ctx.translate(-camera, 0);
     drawGround();
+    level.checkpoints.forEach(drawCheckpoint);
     level.tubes.forEach(drawTube);
     level.platforms.forEach(drawPlatform);
     level.blocks.forEach(drawBlock);
+    level.grumps.forEach(drawGrump);
+    level.bees.forEach(drawBee);
     level.sparks.forEach(drawSpark);
     drawFlag();
     drawDust();
@@ -836,13 +1130,19 @@
 
     drawProgressBar();
 
-    var state = win ? 'At the flag' : (blip.onGround ? ((input.left||input.right) ? 'Running' : 'Idle') : 'Jumping');
+    var state = win ? 'At the flag' : over ? 'Out of lives' : (blip.onGround ? ((input.left||input.right) ? 'Running' : 'Idle') : 'Jumping');
     if (statePill.textContent !== state) statePill.textContent = state;
 
     requestAnimationFrame(loop);
   }
 
-  requestAnimationFrame(loop);
+  try {
+    if (window.claude && window.claude.hot && window.claude.hot.ready) {
+      window.claude.hot.ready(boot);
+    } else {
+      boot(window.claude && window.claude.hot ? window.claude.hot.data : null);
+    }
+  } catch(e){ boot(null); }
 })();
 </script>
 </body>
