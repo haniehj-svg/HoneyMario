@@ -5,6 +5,7 @@ on:
     branches: [claude/serene-rubin-vcygyi]
     paths:
       - 'index.html'
+      - 'assets/**'
   workflow_dispatch:
 
 jobs:
@@ -19,5 +20,6 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASSWORD }}
-          source: 'index.html'
+          source: 'index.html,assets/**'
           target: ${{ secrets.DEPLOY_PATH }}
+          strip_components: 0
